@@ -1,31 +1,3 @@
-/**
- * @file NexUpload.cpp
- *
- * The implementation of uploading tft file for nextion displays.
- *
- * Original version (a part of
- * https://github.com/itead/ITEADLIB_Arduino_Nextion)
- * @author  Chen Zengpeng (email:<zengpeng.chen@itead.cc>)
- * @date    2016/3/29
- * @copyright
- * Copyright (C) 2014-2015 ITEAD Intelligent Systems Co., Ltd.
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, version 3.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
- */
-
-// #define DEBUG_SERIAL_ENABLE
-
 #include "NexUpload.h"
 
 ESPNexUpload::ESPNexUpload(uint32_t upload_baudrate) {
@@ -36,6 +8,8 @@ bool ESPNexUpload::connect() {
 #if defined ESP8266
   yield();
 #endif
+
+  uint16_t conter = 0;
 
   dbSerialBegin(115200);
   _printInfoLine(F("serial tests & connect"));
@@ -76,9 +50,8 @@ bool ESPNexUpload::prepareUpload(uint32_t file_size) {
 
 uint16_t ESPNexUpload::_getBaudrate(void) {
   _baudrate = 0;
-  uint32_t baudrate_array[8] = {921600, 115200, 19200, 9600,
-                                57600,  38400,  4800,  2400};
-  for (uint8_t i = 0; i < 8; i++) {
+  uint32_t baudrate_array[7] = {115200, 19200, 9600, 57600, 38400, 4800, 2400};
+  for (uint8_t i = 0; i < 7; i++) {
     if (_searchBaudrate(baudrate_array[i])) {
       _baudrate = baudrate_array[i];
       _printInfoLine(F("baudrate determined"));
@@ -99,14 +72,13 @@ bool ESPNexUpload::_searchBaudrate(uint32_t baudrate) {
   dbSerialPrint(F("init nextion serial interface on baudrate: "));
   dbSerialPrintln(baudrate);
 
-  nexSerialBegin(baudrate);
   _printInfoLine(F("ESP baudrate established, try to connect to display"));
   const char _nextion_FF_FF[3] = {0xFF, 0xFF, 0x00};
 
   this->sendCommand("DRAKJHSUYDGBNCJHGJKSHBDN");
   this->sendCommand("", true, true);  // 0x00 0xFF 0xFF 0xFF
 
-  this->recvRetString(response);
+  this->receiveRetString(response);
   if (response[0] != 0x1A) {
     _printInfoLine(F("first indication that baudrate is wrong"));
   } else {
@@ -117,7 +89,7 @@ bool ESPNexUpload::_searchBaudrate(uint32_t baudrate) {
 
   this->sendCommand("connect");  // first connect attempt
 
-  this->recvRetString(response);
+  this->receiveRetString(response);
   if (response.indexOf(F("comok")) == -1) {
     _printInfoLine(F("display doesn't accept the first connect request"));
   } else {
@@ -130,7 +102,7 @@ bool ESPNexUpload::_searchBaudrate(uint32_t baudrate) {
   this->sendCommand(_nextion_FF_FF, false);
 
   this->sendCommand("connect");  // second attempt
-  this->recvRetString(response);
+  this->receiveRetString(response);
   if (response.indexOf(F("comok")) == -1 && response[0] != 0x1A) {
     _printInfoLine(F("display doesn't accept the second connect request"));
     _printInfoLine(F("conclusion, wrong baudrate"));
@@ -165,8 +137,8 @@ void ESPNexUpload::sendCommand(const char *cmd, bool tail, bool null_head) {
   _printSerialData(true, cmd);
 }
 
-uint16_t ESPNexUpload::recvRetString(String &response, uint32_t timeout,
-                                     bool recv_flag) {
+uint16_t ESPNexUpload::receiveRetString(String &response, uint32_t timeout,
+                                        bool recv_flag) {
 #if defined ESP8266
   yield();
 #endif
@@ -213,7 +185,7 @@ uint16_t ESPNexUpload::recvRetString(String &response, uint32_t timeout,
   _printSerialData(false, response);
 
   // if the exit flag and the ff flag are both not found, than there is a
-  // timeout if(!exit_flag && !ff_flag) _printInfoLine(F("recvRetString:
+  // timeout if(!exit_flag && !ff_flag) _printInfoLine(F("receiveRetString:
   // timeout"));
 
   if (ff_flag)
@@ -236,11 +208,13 @@ bool ESPNexUpload::_setPrepareForFirmwareUpdate(uint32_t upload_baudrate) {
   this->sendCommand(cmd.c_str());
   delay(0.1);
 
-  this->recvRetString(response, 800, true);  // normal response time is 400ms
+  this->receiveRetString(response, 800, true);  // normal response time is 400ms
+
 
   String filesize_str = String(_undownloadByte, 10);
   String baudrate_str = String(upload_baudrate);
   cmd = "whmi-wri " + filesize_str + "," + baudrate_str + ",0";
+
 
   this->sendCommand(cmd.c_str());
 
@@ -251,11 +225,11 @@ bool ESPNexUpload::_setPrepareForFirmwareUpdate(uint32_t upload_baudrate) {
   // command forced the ESP to wait until the 'transmit buffer' is empty
   nexSerial.flush();
 
-  nexSerialBegin(upload_baudrate);
+  nexSerial.updateBaudRate(upload_baudrate);
   _printInfoLine(F("changing upload baudrate..."));
   _printInfoLine(String(upload_baudrate));
 
-  this->recvRetString(response, 800, true);  // normal response time is 400ms
+  this->receiveRetString(response, 800, true);  // normal response time is 400ms
 
   // The Nextion display will, if it's ready to accept data, send a 0x05 byte.
   if (response.indexOf(0x05) != -1) {
@@ -287,7 +261,7 @@ bool ESPNexUpload::upload(const uint8_t *file_buf, size_t buf_size) {
     if (_sent_packets == 4096) {
       // wait for the Nextion to return its 0x05 byte confirming reception and
       // readiness to receive the next packets
-      this->recvRetString(string, 500, true);
+      this->receiveRetString(string, 500, true);
       if (string.indexOf(0x05) != -1) {
         // reset sent packets counter
         _sent_packets = 0;
@@ -336,12 +310,14 @@ bool ESPNexUpload::upload(Stream &myFile) {
     size_t size = myFile.available();
 
     if (size) {
+
       // read up to 2048 byte into the buffer
       int c =
           myFile.readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
 
       // Write the buffered bytes to the nextion. If this fails, return false.
       if (!this->upload(buff, c)) {
+
         return false;
       } else {
         if (_updateProgressCallback) {
@@ -417,7 +393,7 @@ bool ESPNexUpload::_handlingSleepAndDim(void) {
   cmd = F("get sleep");
   this->sendCommand(cmd.c_str());
 
-  this->recvRetString(response);
+  this->receiveRetString(response);
 
   if (response[0] != 0x71) {
     statusMessage = F("unknown response from 'get sleep' request");
@@ -436,7 +412,7 @@ bool ESPNexUpload::_handlingSleepAndDim(void) {
   cmd = F("get dim");
   this->sendCommand(cmd.c_str());
 
-  this->recvRetString(response);
+  this->receiveRetString(response);
 
   if (response[0] != 0x71) {
     statusMessage = F("unknown response from 'get dim' request");

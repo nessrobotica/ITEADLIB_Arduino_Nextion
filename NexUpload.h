@@ -53,8 +53,10 @@
 #ifndef __ESPNEXUPLOAD_H__
 #define __ESPNEXUPLOAD_H__
 #include <functional>
-#include "NexConfig.h"
-
+#include <Arduino.h>
+#include <SPI.h>
+#include "NexHardware.h"
+#include <StreamString.h>
 /**
  * @addtogroup CoreAPI 
  * @{ 
@@ -246,7 +248,7 @@ private: /* methods */
      * @return the length of string buffer.
      *
      */   
-    uint16_t recvRetString(String &string, uint32_t timeout = 500,bool recv_flag = false);
+    uint16_t receiveRetString(String &string, uint32_t timeout = 500,bool recv_flag = false);
 
     /*
      * 
